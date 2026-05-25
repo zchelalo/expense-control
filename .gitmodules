@@ -1,0 +1,6 @@
+[submodule "expense-control-back"]
+	path = expense-control-back
+	url = https://github.com/zchelalo/expense-control-back
+[submodule "expense-control-ui"]
+	path = expense-control-ui
+	url = https://github.com/zchelalo/expense-control-ui
