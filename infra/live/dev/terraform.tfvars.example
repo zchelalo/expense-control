@@ -1,0 +1,45 @@
+region      = "us-east-1"
+environment = "dev"
+project     = "Expense Control"
+owner       = "Owner"
+cost_center = "CC-OWNER-001"
+
+vpc_cidr = "10.0.0.0/16"
+azs      = ["us-east-1a", "us-east-1b"]
+
+app_base_url = null
+
+frontend_image = "123456789012.dkr.ecr.us-east-1.amazonaws.com/expense-control-dev-frontend:latest"
+backend_image  = "123456789012.dkr.ecr.us-east-1.amazonaws.com/expense-control-dev-backend:latest"
+
+frontend_desired_count = 0
+backend_desired_count  = 0
+
+frontend_cpu    = 256
+frontend_memory = 512
+backend_cpu     = 512
+backend_memory  = 1024
+
+db_name                  = "expense_control"
+db_username              = "expensecontrol"
+db_instance_class        = "db.t3.micro"
+db_allocated_storage     = 20
+db_max_allocated_storage = 100
+db_engine_version        = null
+
+auth_session_secret_arn            = "arn:aws:secretsmanager:us-east-1:123456789012:secret:expense-control/dev/frontend-session"
+jwt_access_private_key_secret_arn  = "arn:aws:secretsmanager:us-east-1:123456789012:secret:expense-control/dev/jwt-access-private"
+jwt_access_public_key_secret_arn   = "arn:aws:secretsmanager:us-east-1:123456789012:secret:expense-control/dev/jwt-access-public"
+jwt_refresh_private_key_secret_arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:expense-control/dev/jwt-refresh-private"
+jwt_refresh_public_key_secret_arn  = "arn:aws:secretsmanager:us-east-1:123456789012:secret:expense-control/dev/jwt-refresh-public"
+
+otel_exporter_otlp_endpoint = ""
+otel_traces_sampler_ratio   = 1
+
+enable_observability = false
+observability_allowed_cidrs = [
+  "203.0.113.10/32",
+]
+observability_grafana_admin_user = "admin"
+
+additional_allowed_origins = []

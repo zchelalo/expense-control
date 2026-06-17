@@ -1,0 +1,99 @@
+name: expense-control-observability
+
+services:
+  expense-control-grafana:
+    image: grafana/grafana:12.1.1
+    container_name: expense-control-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    ports:
+      - ${GRAFANA_PORT:-3001}:3000
+    networks:
+      - expense-control-network
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - grafana_data:/var/lib/grafana
+
+  expense-control-prometheus:
+    image: prom/prometheus:v3.5.0
+    container_name: expense-control-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    ports:
+      - ${PROMETHEUS_PORT:-9090}:9090
+    networks:
+      - expense-control-network
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+  expense-control-loki:
+    image: grafana/loki:3.5.3
+    container_name: expense-control-loki
+    command:
+      - -config.file=/etc/loki/config.yml
+    ports:
+      - ${LOKI_PORT:-3100}:3100
+    networks:
+      - expense-control-network
+    volumes:
+      - ./loki/config.yml:/etc/loki/config.yml:ro
+      - loki_data:/loki
+
+  expense-control-tempo:
+    image: grafana/tempo:2.8.2
+    container_name: expense-control-tempo
+    command:
+      - -config.file=/etc/tempo/config.yml
+    ports:
+      - ${TEMPO_PORT:-3200}:3200
+    networks:
+      - expense-control-network
+    volumes:
+      - ./tempo/config.yml:/etc/tempo/config.yml:ro
+      - tempo_data:/tmp/tempo
+
+  expense-control-otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.130.1
+    container_name: expense-control-otel-collector
+    command:
+      - --config=/etc/otelcol/config.yml
+    ports:
+      - ${OTEL_GRPC_PORT:-4317}:4317
+      - ${OTEL_HTTP_PORT:-4318}:4318
+      - ${OTEL_METRICS_PORT:-8888}:8888
+    networks:
+      - expense-control-network
+    volumes:
+      - ./otel-collector/config.yml:/etc/otelcol/config.yml:ro
+    depends_on:
+      - expense-control-tempo
+
+  expense-control-promtail:
+    image: grafana/promtail:3.5.3
+    container_name: expense-control-promtail
+    command:
+      - -config.file=/etc/promtail/config.yml
+    networks:
+      - expense-control-network
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./promtail/config.yml:/etc/promtail/config.yml:ro
+      - promtail_data:/var/lib/promtail
+    depends_on:
+      - expense-control-loki
+
+networks:
+  expense-control-network:
+    external: true
+    name: ${APP_DOCKER_NETWORK:-expense-control-network}
+
+volumes:
+  grafana_data:
+  prometheus_data:
+  loki_data:
+  tempo_data:
+  promtail_data:
