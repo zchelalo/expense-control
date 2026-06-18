@@ -42,6 +42,10 @@ docker network create expense-control-network
 docker compose -f expense-control-back/.docker/compose.yml up -d --build
 ```
 
+Ese compose ahora espera a PostgreSQL y aplica migraciones automaticamente
+antes de arrancar el backend. No necesitas correr `make migrate-up` para un
+arranque local normal.
+
 1. Levanta observabilidad:
 
 ```bash
