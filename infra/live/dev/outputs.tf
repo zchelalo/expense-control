@@ -10,6 +10,10 @@ output "api_url" {
   value = local.api_base_url
 }
 
+output "app_domain_name" {
+  value = var.app_domain_name
+}
+
 output "frontend_ecr_repository_url" {
   value = aws_ecr_repository.frontend.repository_url
 }

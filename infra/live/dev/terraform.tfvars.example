@@ -8,6 +8,8 @@ vpc_cidr = "10.0.0.0/16"
 azs      = ["us-east-1a", "us-east-1b"]
 
 app_base_url = null
+route53_zone_name = null
+app_domain_name   = null
 
 frontend_image = "123456789012.dkr.ecr.us-east-1.amazonaws.com/expense-control-dev-frontend:latest"
 backend_image  = "123456789012.dkr.ecr.us-east-1.amazonaws.com/expense-control-dev-backend:latest"

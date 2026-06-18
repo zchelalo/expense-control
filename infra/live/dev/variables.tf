@@ -48,6 +48,23 @@ variable "app_base_url" {
   default     = null
 }
 
+variable "route53_zone_name" {
+  type        = string
+  description = "Public Route 53 hosted zone name used for the application custom domain, for example chelalo.me."
+  default     = null
+}
+
+variable "app_domain_name" {
+  type        = string
+  description = "Optional fully-qualified domain name for the application, for example expense-control-dev.chelalo.me."
+  default     = null
+
+  validation {
+    condition     = (var.app_domain_name == null) == (var.route53_zone_name == null)
+    error_message = "app_domain_name and route53_zone_name must be set together."
+  }
+}
+
 variable "frontend_image" {
   type        = string
   description = "Container image URI for the Next.js frontend."

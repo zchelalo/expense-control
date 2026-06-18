@@ -27,7 +27,7 @@ cp .env.example .env
 make create-keys
 ```
 
-2. Si quieres ver trazas localmente, agrega estas variables a
+1. Si quieres ver trazas localmente, agrega estas variables a
    `expense-control-back/.env`:
 
 ```dotenv
@@ -35,20 +35,20 @@ OTEL_EXPORTER_OTLP_ENDPOINT=expense-control-otel-collector:4317
 OTEL_TRACES_SAMPLER_RATIO=1
 ```
 
-3. Levanta backend, base de datos y Adminer:
+1. Levanta backend, base de datos y Adminer:
 
 ```bash
 docker network create expense-control-network
 docker compose -f expense-control-back/.docker/compose.yml up -d --build
 ```
 
-4. Levanta observabilidad:
+1. Levanta observabilidad:
 
 ```bash
 docker compose --env-file observability/local/.env.example -f observability/local/compose.yml up -d
 ```
 
-5. Abre Grafana:
+1. Abre Grafana:
 
 ```text
 http://localhost:3001
@@ -82,7 +82,7 @@ Necesitas:
 - Terraform instalado.
 - AWS CLI autenticado contra la cuenta correcta.
 - Permisos para crear VPC, ALB, ECS, ECR, RDS, EFS, Cloud Map, IAM,
-  CloudWatch Logs y Secrets Manager.
+  CloudWatch Logs, Secrets Manager, ACM y Route 53.
 - Un bucket S3 para estado remoto, creado con `infra/bootstrap`.
 - Secretos de aplicacion en AWS Secrets Manager.
 
@@ -109,9 +109,9 @@ Terraform cuando `enable_observability = true`.
 cp infra/bootstrap/terraform.tfvars.example infra/bootstrap/terraform.tfvars
 ```
 
-2. Ajusta bucket y region.
+1. Ajusta bucket y region.
 
-3. Aplica bootstrap:
+2. Aplica bootstrap:
 
 ```bash
 cd infra/bootstrap
@@ -142,6 +142,145 @@ cd infra/live/dev
 terraform init -backend-config=backend.hcl
 ```
 
+## AWS: deploy exacto de este repo
+
+La configuracion actual de [infra/live/dev/terraform.tfvars](/home/chelalo/projects/personal/expense-control/expense-control/infra/live/dev/terraform.tfvars)
+ya quedo preparada para:
+
+- `environment = "dev"`
+- `route53_zone_name = "chelalo.me"`
+- `app_domain_name = "expense-control-dev.chelalo.me"`
+- `frontend_desired_count = 0`
+- `backend_desired_count = 0`
+- observabilidad AWS desactivada (`enable_observability = false`)
+
+Eso significa que el primer `apply` crea la red, RDS, ALB, Route 53, ACM, ECS
+y ECR, pero no intenta levantar contenedores hasta que hayas subido las
+imagenes.
+
+Si tambien quieres desplegar Grafana, Prometheus, Loki, Tempo y Collector en
+AWS, cambia `enable_observability = true` antes del Paso 1. Si lo dejas como
+esta ahora, el despliegue levanta solo app, backend, base de datos y
+CloudWatch Logs.
+
+### Paso 1: inicializar y crear infraestructura base
+
+```bash
+cd infra/live/dev
+terraform init -backend-config=backend.hcl
+terraform validate
+terraform plan -out=plan.out
+terraform apply plan.out
+```
+
+### Paso 2: confirmar dominio y repositorios ECR
+
+```bash
+terraform output frontend_url
+terraform output api_url
+terraform output frontend_ecr_repository_url
+terraform output backend_ecr_repository_url
+```
+
+Espera que `frontend_url` sea:
+
+```text
+https://expense-control-dev.chelalo.me
+```
+
+Si ACM sigue validando, Route 53 y el certificado pueden tardar unos minutos en
+quedar completamente activos, pero no necesitas hacer nada manual porque
+Terraform crea los registros DNS de validacion.
+
+### Paso 3: autenticar Docker contra ECR
+
+Desde la raiz del repo:
+
+```bash
+cd /home/chelalo/projects/personal/expense-control/expense-control
+
+AWS_REGION=us-east-1
+AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+aws ecr get-login-password --region "$AWS_REGION" \
+  | docker login --username AWS --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+```
+
+### Paso 4: build y push del backend
+
+```bash
+BACKEND_REPO=$(terraform -chdir=infra/live/dev output -raw backend_ecr_repository_url)
+
+docker build -t expense-control-back:latest ./expense-control-back
+docker tag expense-control-back:latest "$BACKEND_REPO:latest"
+docker push "$BACKEND_REPO:latest"
+```
+
+El backend ya corre migraciones automaticamente al arrancar en ECS. No hace
+falta ejecutar `run-migrations.sh` a mano en un redeploy normal.
+
+### Paso 5: build y push del frontend con la URL final
+
+```bash
+FRONTEND_REPO=$(terraform -chdir=infra/live/dev output -raw frontend_ecr_repository_url)
+FRONTEND_API_URL=$(terraform -chdir=infra/live/dev output -raw api_url)
+
+docker build \
+  --build-arg API_URL="$FRONTEND_API_URL" \
+  --build-arg NEXT_PUBLIC_API_URL="$FRONTEND_API_URL" \
+  -t expense-control-ui:latest \
+  ./expense-control-ui
+
+docker tag expense-control-ui:latest "$FRONTEND_REPO:latest"
+docker push "$FRONTEND_REPO:latest"
+```
+
+### Paso 6: activar frontend y backend
+
+Sube los `desired_count` en el mismo `terraform.tfvars`:
+
+```hcl
+frontend_desired_count = 1
+backend_desired_count  = 1
+```
+
+Si quieres hacerlo sin abrir editor, usa:
+
+```bash
+perl -0pi -e 's/frontend_desired_count = 0/frontend_desired_count = 1/' infra/live/dev/terraform.tfvars
+perl -0pi -e 's/backend_desired_count  = 0/backend_desired_count  = 1/' infra/live/dev/terraform.tfvars
+```
+
+### Paso 7: aplicar el despliegue final
+
+```bash
+cd infra/live/dev
+terraform plan -out=plan.out
+terraform apply plan.out
+```
+
+### Paso 8: validar
+
+```bash
+terraform output frontend_url
+terraform output api_url
+terraform output ecs_cluster_name
+terraform output backend_service_name
+```
+
+Abre:
+
+```text
+https://expense-control-dev.chelalo.me
+```
+
+Registro y login ya deberian funcionar sin pasos adicionales. Si quieres revisar
+logs del backend despues del despliegue:
+
+```bash
+aws logs tail /ecs/expense-control-dev-backend --region us-east-1 --since 10m
+```
+
 Ejemplo minimo de variables relevantes:
 
 ```hcl
@@ -155,6 +294,8 @@ vpc_cidr = "10.0.0.0/16"
 azs      = ["us-east-1a", "us-east-1b"]
 
 app_base_url = null
+route53_zone_name = "chelalo.me"
+app_domain_name   = "expense-control-prod.chelalo.me"
 
 frontend_image = "123456789012.dkr.ecr.us-east-1.amazonaws.com/expense-control-prod-frontend:latest"
 backend_image  = "123456789012.dkr.ecr.us-east-1.amazonaws.com/expense-control-prod-backend:latest"
@@ -179,6 +320,18 @@ otel_traces_sampler_ratio     = 1
 additional_allowed_origins = []
 ```
 
+Si quieres dominio propio, el hosted zone de Route 53 debe existir en la misma
+cuenta y `app_domain_name` debe pertenecer a esa zona. Con los valores de
+arriba Terraform hace tres cosas:
+
+- solicita un certificado ACM en la misma region del ALB,
+- crea los registros DNS de validacion del certificado,
+- crea el alias `A` del subdominio hacia el ALB.
+
+Si no quieres dominio propio todavia, deja `route53_zone_name = null` y
+`app_domain_name = null`. El stack seguira usando el DNS publico del ALB por
+HTTP.
+
 Para obtener tu IP publica:
 
 ```bash
@@ -196,6 +349,15 @@ terraform init -backend-config=backend.hcl
 terraform validate
 terraform plan -out=plan.out
 terraform apply plan.out
+```
+
+Si configuraste `app_domain_name`, este apply tambien dejara listo el
+certificado y el listener HTTPS. La validacion DNS de ACM suele tardar pocos
+minutos, asi que espera a que el `apply` termine y luego verifica:
+
+```bash
+terraform output frontend_url
+terraform output app_domain_name
 ```
 
 Toma los outputs:
@@ -339,6 +501,9 @@ Limitaciones actuales:
 
 - `environment`: `dev`, `staging` o `prod`; afecta nombres, tags y runtime.
 - `app_base_url`: URL publica final. Si queda `null`, se usa el DNS del ALB.
+- `route53_zone_name`: zona publica de Route 53 donde existe tu dominio.
+- `app_domain_name`: subdominio completo que apuntara al ALB. Si se define,
+  Terraform habilita HTTPS y redirige HTTP a HTTPS.
 - `frontend_image` y `backend_image`: imagenes completas en ECR.
 - `frontend_desired_count` y `backend_desired_count`: usa `0` antes de subir
   imagenes y `1` o mas despues.
@@ -351,7 +516,9 @@ Limitaciones actuales:
 
 ## Consideraciones para produccion
 
-- Configura HTTPS y dominio propio antes de exponer usuarios reales.
+- Usa `route53_zone_name` y `app_domain_name` para evitar dejar el login sobre
+  HTTP. Si expones la aplicacion por dominio propio, el frontend ya detecta
+  HTTPS y activa cookies seguras de sesion.
 - Para prod, cambia RDS a una postura menos destructiva: `deletion_protection`
   y snapshots finales. El stack actual esta optimizado para iterar.
 - Revisa costos antes de dejar observabilidad encendida: ECS, EFS, ALB, RDS y

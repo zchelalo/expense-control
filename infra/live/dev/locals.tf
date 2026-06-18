@@ -43,8 +43,10 @@ locals {
     tempo      = "/tempo"
   }
 
+  use_custom_domain           = var.route53_zone_name != null && var.app_domain_name != null
+  default_public_app_base_url = local.use_custom_domain ? "https://${var.app_domain_name}" : "http://${aws_lb.app.dns_name}"
   public_app_base_url = trimsuffix(
-    coalesce(var.app_base_url, "http://${aws_lb.app.dns_name}"),
+    coalesce(var.app_base_url, local.default_public_app_base_url),
     "/",
   )
   api_base_url    = "${local.public_app_base_url}/api"

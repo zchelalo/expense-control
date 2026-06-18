@@ -25,6 +25,12 @@ module "vpc" {
   tags        = module.tags.tags
 }
 
+data "aws_route53_zone" "app" {
+  count        = local.use_custom_domain ? 1 : 0
+  name         = "${trimsuffix(var.route53_zone_name, ".")}."
+  private_zone = false
+}
+
 data "aws_iam_policy_document" "ecs_task_assume_role" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -124,6 +130,41 @@ resource "aws_cloudwatch_log_group" "backend" {
   tags              = module.tags.tags
 }
 
+resource "aws_acm_certificate" "app" {
+  count             = local.use_custom_domain ? 1 : 0
+  domain_name       = var.app_domain_name
+  validation_method = "DNS"
+  tags              = module.tags.tags
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_route53_record" "app_certificate_validation" {
+  for_each = local.use_custom_domain ? {
+    for dvo in aws_acm_certificate.app[0].domain_validation_options :
+    dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  } : {}
+
+  allow_overwrite = true
+  name            = each.value.name
+  records         = [each.value.record]
+  ttl             = 60
+  type            = each.value.type
+  zone_id         = data.aws_route53_zone.app[0].zone_id
+}
+
+resource "aws_acm_certificate_validation" "app" {
+  count                   = local.use_custom_domain ? 1 : 0
+  certificate_arn         = aws_acm_certificate.app[0].arn
+  validation_record_fqdns = [for record in aws_route53_record.app_certificate_validation : record.fqdn]
+}
+
 resource "aws_ecs_cluster" "main" {
   name = local.cluster_name
   tags = module.tags.tags
@@ -140,6 +181,18 @@ resource "aws_security_group" "alb" {
     to_port     = 80
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  dynamic "ingress" {
+    for_each = local.use_custom_domain ? [1] : []
+
+    content {
+      description = "Allow inbound HTTPS"
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
   }
 
   egress {
@@ -310,6 +363,38 @@ resource "aws_lb_listener" "http" {
   port              = 80
   protocol          = "HTTP"
 
+  dynamic "default_action" {
+    for_each = local.use_custom_domain ? [1] : []
+
+    content {
+      type = "redirect"
+
+      redirect {
+        port        = "443"
+        protocol    = "HTTPS"
+        status_code = "HTTP_301"
+      }
+    }
+  }
+
+  dynamic "default_action" {
+    for_each = local.use_custom_domain ? [] : [1]
+
+    content {
+      type             = "forward"
+      target_group_arn = aws_lb_target_group.frontend.arn
+    }
+  }
+}
+
+resource "aws_lb_listener" "https" {
+  count             = local.use_custom_domain ? 1 : 0
+  load_balancer_arn = aws_lb.app.arn
+  port              = 443
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  certificate_arn   = aws_acm_certificate_validation.app[0].certificate_arn
+
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.frontend.arn
@@ -317,7 +402,7 @@ resource "aws_lb_listener" "http" {
 }
 
 resource "aws_lb_listener_rule" "api" {
-  listener_arn = aws_lb_listener.http.arn
+  listener_arn = local.use_custom_domain ? aws_lb_listener.https[0].arn : aws_lb_listener.http.arn
   priority     = 100
 
   action {
@@ -333,7 +418,7 @@ resource "aws_lb_listener_rule" "api" {
 }
 
 resource "aws_lb_listener_rule" "metrics_block" {
-  listener_arn = aws_lb_listener.http.arn
+  listener_arn = local.use_custom_domain ? aws_lb_listener.https[0].arn : aws_lb_listener.http.arn
   priority     = 50
 
   action {
@@ -350,6 +435,19 @@ resource "aws_lb_listener_rule" "metrics_block" {
     path_pattern {
       values = ["/api/metrics", "/api/metrics/*"]
     }
+  }
+}
+
+resource "aws_route53_record" "app" {
+  count   = local.use_custom_domain ? 1 : 0
+  zone_id = data.aws_route53_zone.app[0].zone_id
+  name    = var.app_domain_name
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.app.dns_name
+    zone_id                = aws_lb.app.zone_id
+    evaluate_target_health = true
   }
 }
 
