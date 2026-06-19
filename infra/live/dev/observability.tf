@@ -63,9 +63,6 @@ resource "aws_service_discovery_service" "backend" {
 
     routing_policy = "MULTIVALUE"
   }
-
-  health_check_custom_config {
-  }
 }
 
 resource "aws_service_discovery_service" "observability" {
@@ -82,9 +79,6 @@ resource "aws_service_discovery_service" "observability" {
     }
 
     routing_policy = "MULTIVALUE"
-  }
-
-  health_check_custom_config {
   }
 }
 
@@ -278,9 +272,7 @@ resource "aws_efs_file_system" "observability" {
 }
 
 resource "aws_efs_mount_target" "observability" {
-  for_each = var.enable_observability ? {
-    for subnet_id in module.vpc.public_subnet_ids : subnet_id => subnet_id
-  } : {}
+  for_each = var.enable_observability ? module.vpc.public_subnet_ids_by_az : {}
 
   file_system_id  = aws_efs_file_system.observability[0].id
   subnet_id       = each.value

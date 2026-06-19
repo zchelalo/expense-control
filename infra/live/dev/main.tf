@@ -729,7 +729,7 @@ resource "aws_ecs_service" "frontend" {
   launch_type                        = "FARGATE"
   enable_execute_command             = true
   health_check_grace_period_seconds  = 60
-  deployment_minimum_healthy_percent = 0
+  deployment_minimum_healthy_percent = 100
   deployment_maximum_percent         = 200
 
   network_configuration {
@@ -756,7 +756,7 @@ resource "aws_ecs_service" "backend" {
   launch_type                        = "FARGATE"
   enable_execute_command             = true
   health_check_grace_period_seconds  = 60
-  deployment_minimum_healthy_percent = 0
+  deployment_minimum_healthy_percent = 100
   deployment_maximum_percent         = 200
 
   network_configuration {

@@ -523,6 +523,11 @@ Limitaciones actuales:
 - Usa `route53_zone_name` y `app_domain_name` para evitar dejar el login sobre
   HTTP. Si expones la aplicacion por dominio propio, el frontend ya detecta
   HTTPS y activa cookies seguras de sesion.
+- `frontend` y `backend` usan rolling deploy con
+  `deployment_minimum_healthy_percent = 100` y
+  `deployment_maximum_percent = 200`, para evitar que el ALB quede sin targets
+  sanos durante cambios como activar observabilidad o publicar nuevas task
+  definitions.
 - Para prod, cambia RDS a una postura menos destructiva: `deletion_protection`
   y snapshots finales. El stack actual esta optimizado para iterar.
 - Revisa costos antes de dejar observabilidad encendida: ECS, EFS, ALB, RDS y
